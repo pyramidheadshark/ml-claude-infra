@@ -15,6 +15,14 @@ function runHook(prompt, cwd = FIXTURE_CWD) {
   return JSON.parse(result.stdout);
 }
 
+function getLoadedSkills(output) {
+  const addition = output.system_prompt_addition || "";
+  return addition
+    .split("\n")
+    .filter((l) => l.startsWith("## Skill:"))
+    .map((l) => l.replace("## Skill:", "").trim().split(" ")[0]);
+}
+
 describe("E2E — hook process output", () => {
   test("returns valid JSON with continue:true for any prompt", () => {
     const output = runHook("just a random prompt");
@@ -24,28 +32,26 @@ describe("E2E — hook process output", () => {
   test("always injects python-project-standards (always_load:true)", () => {
     const output = runHook("write me a poem about clouds");
     expect(output.system_prompt_addition).toBeDefined();
-    expect(output.system_prompt_addition).toContain("python-project-standards");
+    expect(getLoadedSkills(output)).toContain("python-project-standards");
   });
 
   test("injects fastapi-patterns when keyword matches", () => {
     const output = runHook("help me write a fastapi router");
-    expect(output.system_prompt_addition).toContain("fastapi-patterns");
+    expect(getLoadedSkills(output)).toContain("fastapi-patterns");
   });
 
   test("does not inject optional design-doc-creator automatically", () => {
     const output = runHook("I need to write a design document for my project");
-    const addition = output.system_prompt_addition || "";
-    expect(addition).not.toContain("design-doc-creator");
+    expect(getLoadedSkills(output)).not.toContain("design-doc-creator");
   });
 
   test("does not activate langgraph-patterns with only 1 generic keyword", () => {
     const output = runHook("how does this graph work");
-    const addition = output.system_prompt_addition || "";
-    expect(addition).not.toContain("langgraph-patterns");
+    expect(getLoadedSkills(output)).not.toContain("langgraph-patterns");
   });
 
   test("activates langgraph-patterns with 2+ keyword matches", () => {
     const output = runHook("langgraph state machine setup guide");
-    expect(output.system_prompt_addition).toContain("langgraph-patterns");
+    expect(getLoadedSkills(output)).toContain("langgraph-patterns");
   });
 });
