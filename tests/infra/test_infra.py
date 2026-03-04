@@ -246,6 +246,23 @@ class TestHookFiles(unittest.TestCase):
         self.assertTrue(content.startswith("#!/"), "Shell hook should start with shebang")
 
 
+class TestClaudeIgnore(unittest.TestCase):
+    def test_claudeignore_exists(self):
+        claudeignore = INFRA_ROOT / ".claudeignore"
+        self.assertTrue(
+            claudeignore.exists(),
+            ".claudeignore missing — add it to reduce context noise"
+        )
+
+    def test_claudeignore_excludes_node_modules(self):
+        content = (INFRA_ROOT / ".claudeignore").read_text(encoding="utf-8")
+        self.assertIn("node_modules/", content)
+
+    def test_claudeignore_excludes_jsonl(self):
+        content = (INFRA_ROOT / ".claudeignore").read_text(encoding="utf-8")
+        self.assertIn("*.jsonl", content)
+
+
 class TestCLAUDEmd(unittest.TestCase):
     def setUp(self):
         self.content = (INFRA_ROOT / ".claude" / "CLAUDE.md").read_text(encoding="utf-8")
