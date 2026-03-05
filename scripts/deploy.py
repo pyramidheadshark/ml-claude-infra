@@ -6,11 +6,13 @@ Copies hooks, agents, commands, and selected skills into a target project.
 Works on Windows, Linux, and macOS with Python 3.11+.
 
 Usage:
-    python scripts/deploy.py                               # interactive wizard
-    python scripts/deploy.py <target> --all                # all non-meta skills
-    python scripts/deploy.py <target> --all --include-meta # include meta-skills
-    python scripts/deploy.py <target> --skills a,b,c       # selected skills
-    python scripts/deploy.py <target> --all --with-tests   # include test suite
+    python scripts/deploy.py                                          # interactive wizard
+    python scripts/deploy.py <target> --all                           # all non-meta skills
+    python scripts/deploy.py <target> --all --include-meta            # include meta-skills
+    python scripts/deploy.py <target> --skills a,b,c                  # selected skills
+    python scripts/deploy.py <target> --all --with-tests              # include test suite
+    python scripts/deploy.py <target> --all --ci-profile fastapi      # add CI workflow
+    python scripts/deploy.py <target> --all --ci-profile fastapi-db --deploy-target yc
 """
 import argparse
 import json
@@ -20,6 +22,20 @@ from pathlib import Path
 
 INFRA_DIR = Path(__file__).resolve().parent.parent
 SKILLS_DIR = INFRA_DIR / ".claude" / "skills"
+CI_TEMPLATES_DIR = INFRA_DIR / "templates" / "github-actions"
+
+CI_PROFILES: list[tuple[str, str]] = [
+    ("minimal",    "Lint + typecheck + test — CLI tools, data scripts, web scrapers"),
+    ("fastapi",    "Lint + typecheck + test + docker-build — standard FastAPI service"),
+    ("fastapi-db", "Lint + typecheck + test (Postgres) + migration-check + docker-build"),
+    ("ml-heavy",   "Lint + typecheck + test (HF cache) + security scan + docker-build"),
+]
+
+DEPLOY_TARGETS: list[tuple[str, str]] = [
+    ("none", "No deploy stage — CI only"),
+    ("yc",   "Yandex Cloud Container Registry + Serverless Container"),
+    ("vps",  "VPS / bare metal via SSH + docker-compose pull"),
+]
 
 SKILLS: list[tuple[str, str]] = [
     ("python-project-standards", "Python setup: pyproject.toml, uv, ruff, mypy, pre-commit"),
@@ -134,12 +150,46 @@ def interactive_wizard() -> argparse.Namespace:
     with_tests = _confirm("  Include test suite (Jest + Python)?", default=False)
 
     print()
+    print("  CI/CD Profile:")
+    print("  " + "-" * 54)
+    print("    0. Skip — no CI workflow")
+    for i, (name, desc) in enumerate(CI_PROFILES, 1):
+        print(f"    {i}. {name:<14} {desc}")
+    print("  " + "-" * 54)
+    print()
+    ci_choice = _choose_str("  CI profile (0 to skip): ").strip()
+
+    ci_profile = ""
+    deploy_target = "none"
+
+    if ci_choice.isdigit() and 1 <= int(ci_choice) <= len(CI_PROFILES):
+        ci_profile = CI_PROFILES[int(ci_choice) - 1][0]
+        print(f"\n  Selected CI profile: {ci_profile}")
+
+        print()
+        print("  Deploy target:")
+        print("  " + "-" * 54)
+        for i, (name, desc) in enumerate(DEPLOY_TARGETS, 1):
+            print(f"    {i}. {name:<8} {desc}")
+        print("  " + "-" * 54)
+        print()
+        dep_choice = _choose_str("  Deploy target (1 for none): ").strip()
+
+        if dep_choice.isdigit() and 1 <= int(dep_choice) <= len(DEPLOY_TARGETS):
+            deploy_target = DEPLOY_TARGETS[int(dep_choice) - 1][0]
+        print(f"  Deploy target: {deploy_target}")
+    else:
+        print("  Skipping CI workflow.")
+
+    print()
     return argparse.Namespace(
         target=str(target),
         all=False,
         skills=",".join(selected),
         with_tests=with_tests,
         include_meta=include_meta,
+        ci_profile=ci_profile,
+        deploy_target=deploy_target,
     )
 
 
@@ -168,6 +218,34 @@ def generate_skill_rules(
     result = dict(source_rules)
     result["rules"] = filtered
     return result
+
+
+def deploy_ci(target: Path, ci_profile: str, deploy_target: str) -> None:
+    ci_src = CI_TEMPLATES_DIR / f"{ci_profile}.yml"
+    if not ci_src.exists():
+        print(f"  WARN: CI template '{ci_profile}.yml' not found, skipping")
+        return
+
+    workflows_dir = target / ".github" / "workflows"
+    workflows_dir.mkdir(parents=True, exist_ok=True)
+    ci_dst = workflows_dir / "ci.yml"
+
+    if ci_dst.exists():
+        print("  .github/workflows/ci.yml already exists, skipping (no overwrite)")
+    else:
+        shutil.copy2(ci_src, ci_dst)
+        print(f"  Created .github/workflows/ci.yml (profile: {ci_profile})")
+
+    if deploy_target and deploy_target != "none":
+        deploy_src = CI_TEMPLATES_DIR / "deploy" / f"{deploy_target}.yml"
+        deploy_dst = workflows_dir / "deploy.yml"
+        if not deploy_src.exists():
+            print(f"  WARN: deploy template '{deploy_target}.yml' not found, skipping")
+        elif deploy_dst.exists():
+            print("  .github/workflows/deploy.yml already exists, skipping (no overwrite)")
+        else:
+            shutil.copy2(deploy_src, deploy_dst)
+            print(f"  Created .github/workflows/deploy.yml (target: {deploy_target})")
 
 
 def deploy(args: argparse.Namespace) -> None:
@@ -261,6 +339,14 @@ def deploy(args: argparse.Namespace) -> None:
         gitignore_path.write_text(claude_ignore_entry, encoding="utf-8")
         print("  Created .gitignore with .claude/ exclusion")
 
+    ci_profile = getattr(args, "ci_profile", "")
+    deploy_target = getattr(args, "deploy_target", "none")
+    if ci_profile:
+        print(f"[6/6] Setting up CI/CD (profile: {ci_profile})...")
+        deploy_ci(target, ci_profile, deploy_target)
+    else:
+        print("[6/6] Skipping CI/CD (no --ci-profile specified)")
+
     if args.with_tests:
         print("[+] Copying test suite...")
         shutil.copytree(INFRA_DIR / "tests" / "hook", target / "tests" / "hook", dirs_exist_ok=True)
@@ -301,6 +387,9 @@ def main() -> None:
             "  python scripts/deploy.py ~/Repos/my-project --all",
             "  python scripts/deploy.py ~/Repos/my-project --all --include-meta --with-tests",
             "  python scripts/deploy.py ~/Repos/my-project --skills python-project-standards,fastapi-patterns",
+            "  python scripts/deploy.py ~/Repos/my-project --all --ci-profile fastapi",
+            "  python scripts/deploy.py ~/Repos/my-project --all --ci-profile fastapi-db --deploy-target yc",
+            "  python scripts/deploy.py ~/Repos/my-project --all --ci-profile ml-heavy --deploy-target vps",
         ]),
     )
     parser.add_argument("target", help="Target project directory")
@@ -310,6 +399,20 @@ def main() -> None:
                         help="Include meta-skills (design-doc-creator, skill-developer)")
     parser.add_argument("--with-tests", action="store_true", dest="with_tests",
                         help="Copy test suite into target project")
+    parser.add_argument(
+        "--ci-profile",
+        dest="ci_profile",
+        default="",
+        choices=["minimal", "fastapi", "fastapi-db", "ml-heavy"],
+        help="CI/CD profile to deploy into .github/workflows/ci.yml",
+    )
+    parser.add_argument(
+        "--deploy-target",
+        dest="deploy_target",
+        default="none",
+        choices=["none", "yc", "vps"],
+        help="Deploy stage: yc (Yandex Cloud), vps (SSH+docker-compose), none (default)",
+    )
 
     args = parser.parse_args()
 
