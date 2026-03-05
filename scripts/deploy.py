@@ -6,20 +6,43 @@ Copies hooks, agents, commands, and selected skills into a target project.
 Works on Windows, Linux, and macOS with Python 3.11+.
 
 Usage:
-    python scripts/deploy.py                               # interactive wizard
-    python scripts/deploy.py <target> --all                # all non-meta skills
-    python scripts/deploy.py <target> --all --include-meta # include meta-skills
-    python scripts/deploy.py <target> --skills a,b,c       # selected skills
-    python scripts/deploy.py <target> --all --with-tests   # include test suite
+    python scripts/deploy.py                                          # interactive wizard
+    python scripts/deploy.py <target> --all                           # all non-meta skills
+    python scripts/deploy.py <target> --all --include-meta            # include meta-skills
+    python scripts/deploy.py <target> --skills a,b,c                  # selected skills
+    python scripts/deploy.py <target> --all --with-tests              # include test suite
+    python scripts/deploy.py <target> --all --ci-profile fastapi      # add CI workflow
+    python scripts/deploy.py <target> --all --ci-profile fastapi-db --deploy-target yc
+
+    python scripts/deploy.py --status                                 # show all deployed repos + version drift
+    python scripts/deploy.py --update <target>                        # update .claude/ in one repo
+    python scripts/deploy.py --update-all                             # update .claude/ in all registered repos
 """
 import argparse
 import json
 import shutil
+import subprocess
 import sys
+from datetime import date
 from pathlib import Path
 
 INFRA_DIR = Path(__file__).resolve().parent.parent
 SKILLS_DIR = INFRA_DIR / ".claude" / "skills"
+CI_TEMPLATES_DIR = INFRA_DIR / "templates" / "github-actions"
+REGISTRY_PATH = INFRA_DIR / "deployed-repos.json"
+
+CI_PROFILES: list[tuple[str, str]] = [
+    ("minimal",    "Lint + typecheck + test — CLI tools, data scripts, web scrapers"),
+    ("fastapi",    "Lint + typecheck + test + docker-build — standard FastAPI service"),
+    ("fastapi-db", "Lint + typecheck + test (Postgres) + migration-check + docker-build"),
+    ("ml-heavy",   "Lint + typecheck + test (HF cache) + security scan + docker-build"),
+]
+
+DEPLOY_TARGETS: list[tuple[str, str]] = [
+    ("none", "No deploy stage — CI only"),
+    ("yc",   "Yandex Cloud Container Registry + Serverless Container"),
+    ("vps",  "VPS / bare metal via SSH + docker-compose pull"),
+]
 
 SKILLS: list[tuple[str, str]] = [
     ("python-project-standards", "Python setup: pyproject.toml, uv, ruff, mypy, pre-commit"),
@@ -48,6 +71,124 @@ PROJECT_PRESETS: dict[str, list[str]] = {
     "NLP / anonymization": ["python-project-standards", "nlp-slm-patterns", "test-first-patterns"],
     "Full ML platform":    [s for s, _ in SKILLS],
 }
+
+
+def _get_current_sha() -> str:
+    result = subprocess.run(
+        ["git", "rev-parse", "--short", "HEAD"],
+        cwd=INFRA_DIR, capture_output=True, text=True,
+    )
+    return result.stdout.strip() if result.returncode == 0 else "unknown"
+
+
+def _load_registry() -> dict:
+    if REGISTRY_PATH.exists():
+        with open(REGISTRY_PATH, encoding="utf-8") as f:
+            return json.load(f)
+    return {"deployed": []}
+
+
+def _save_registry(registry: dict) -> None:
+    with open(REGISTRY_PATH, "w", encoding="utf-8") as f:
+        json.dump(registry, f, ensure_ascii=False, indent=2)
+
+
+def _register_deploy(target: Path, selected: list[str], ci_profile: str, deploy_target: str) -> None:
+    sha = _get_current_sha()
+    version_file = target / ".claude" / "infra-version"
+    version_file.write_text(sha, encoding="utf-8")
+
+    registry = _load_registry()
+    entry = {
+        "path": str(target),
+        "skills": selected,
+        "ci_profile": ci_profile,
+        "deploy_target": deploy_target,
+        "deployed_at": date.today().isoformat(),
+        "infra_sha": sha,
+    }
+    existing = [e for e in registry["deployed"] if e["path"] == str(target)]
+    if existing:
+        registry["deployed"][registry["deployed"].index(existing[0])] = entry
+    else:
+        registry["deployed"].append(entry)
+    _save_registry(registry)
+    print(f"  Registered in deployed-repos.json (sha: {sha})")
+
+
+def status_cmd() -> None:
+    registry = _load_registry()
+    current_sha = _get_current_sha()
+
+    if not registry["deployed"]:
+        print("  No deployed repos registered.")
+        return
+
+    _header(f"Deployed repos  (infra HEAD: {current_sha})")
+    for entry in registry["deployed"]:
+        path = Path(entry["path"])
+        version_file = path / ".claude" / "infra-version"
+        if not path.exists():
+            status = "NOT FOUND on disk"
+        elif not version_file.exists():
+            status = "no version file"
+        else:
+            repo_sha = version_file.read_text(encoding="utf-8").strip()
+            status = "up to date" if repo_sha == current_sha else f"OUTDATED ({repo_sha})"
+        skills_str = ", ".join(entry.get("skills", []))
+        ci_str = entry.get("ci_profile", "none")
+        print(f"  {path.name:<32} [{status}]")
+        print(f"    path     : {entry['path']}")
+        print(f"    skills   : {skills_str}")
+        print(f"    CI       : {ci_str}  deployed: {entry.get('deployed_at', '?')}")
+        print()
+
+
+def update_cmd(target_path: str) -> None:
+    target = Path(target_path).expanduser().resolve()
+    registry = _load_registry()
+    entries = [e for e in registry["deployed"] if Path(e["path"]) == target]
+    if not entries:
+        print(f"  ERROR: {target} not found in registry.", file=sys.stderr)
+        print("  Run a fresh deploy first to register it.", file=sys.stderr)
+        sys.exit(1)
+
+    entry = entries[0]
+    print(f"\n  Updating: {target.name}")
+    args = argparse.Namespace(
+        target=str(target),
+        all=False,
+        skills=",".join(entry["skills"]),
+        with_tests=False,
+        include_meta=entry.get("include_meta", False),
+        ci_profile="",
+        deploy_target="none",
+    )
+    deploy(args)
+
+
+def update_all_cmd() -> None:
+    registry = _load_registry()
+    if not registry["deployed"]:
+        print("  No deployed repos registered.")
+        return
+
+    current_sha = _get_current_sha()
+    to_update = []
+    for entry in registry["deployed"]:
+        path = Path(entry["path"])
+        version_file = path / ".claude" / "infra-version"
+        repo_sha = version_file.read_text(encoding="utf-8").strip() if version_file.exists() else ""
+        if repo_sha != current_sha:
+            to_update.append(entry)
+
+    if not to_update:
+        print(f"  All {len(registry['deployed'])} repos are up to date.")
+        return
+
+    print(f"  Updating {len(to_update)} of {len(registry['deployed'])} repos...\n")
+    for entry in to_update:
+        update_cmd(entry["path"])
 
 
 def _hr(width: int = 60) -> None:
@@ -134,12 +275,46 @@ def interactive_wizard() -> argparse.Namespace:
     with_tests = _confirm("  Include test suite (Jest + Python)?", default=False)
 
     print()
+    print("  CI/CD Profile:")
+    print("  " + "-" * 54)
+    print("    0. Skip — no CI workflow")
+    for i, (name, desc) in enumerate(CI_PROFILES, 1):
+        print(f"    {i}. {name:<14} {desc}")
+    print("  " + "-" * 54)
+    print()
+    ci_choice = _choose_str("  CI profile (0 to skip): ").strip()
+
+    ci_profile = ""
+    deploy_target = "none"
+
+    if ci_choice.isdigit() and 1 <= int(ci_choice) <= len(CI_PROFILES):
+        ci_profile = CI_PROFILES[int(ci_choice) - 1][0]
+        print(f"\n  Selected CI profile: {ci_profile}")
+
+        print()
+        print("  Deploy target:")
+        print("  " + "-" * 54)
+        for i, (name, desc) in enumerate(DEPLOY_TARGETS, 1):
+            print(f"    {i}. {name:<8} {desc}")
+        print("  " + "-" * 54)
+        print()
+        dep_choice = _choose_str("  Deploy target (1 for none): ").strip()
+
+        if dep_choice.isdigit() and 1 <= int(dep_choice) <= len(DEPLOY_TARGETS):
+            deploy_target = DEPLOY_TARGETS[int(dep_choice) - 1][0]
+        print(f"  Deploy target: {deploy_target}")
+    else:
+        print("  Skipping CI workflow.")
+
+    print()
     return argparse.Namespace(
         target=str(target),
         all=False,
         skills=",".join(selected),
         with_tests=with_tests,
         include_meta=include_meta,
+        ci_profile=ci_profile,
+        deploy_target=deploy_target,
     )
 
 
@@ -168,6 +343,34 @@ def generate_skill_rules(
     result = dict(source_rules)
     result["rules"] = filtered
     return result
+
+
+def deploy_ci(target: Path, ci_profile: str, deploy_target: str) -> None:
+    ci_src = CI_TEMPLATES_DIR / f"{ci_profile}.yml"
+    if not ci_src.exists():
+        print(f"  WARN: CI template '{ci_profile}.yml' not found, skipping")
+        return
+
+    workflows_dir = target / ".github" / "workflows"
+    workflows_dir.mkdir(parents=True, exist_ok=True)
+    ci_dst = workflows_dir / "ci.yml"
+
+    if ci_dst.exists():
+        print("  .github/workflows/ci.yml already exists, skipping (no overwrite)")
+    else:
+        shutil.copy2(ci_src, ci_dst)
+        print(f"  Created .github/workflows/ci.yml (profile: {ci_profile})")
+
+    if deploy_target and deploy_target != "none":
+        deploy_src = CI_TEMPLATES_DIR / "deploy" / f"{deploy_target}.yml"
+        deploy_dst = workflows_dir / "deploy.yml"
+        if not deploy_src.exists():
+            print(f"  WARN: deploy template '{deploy_target}.yml' not found, skipping")
+        elif deploy_dst.exists():
+            print("  .github/workflows/deploy.yml already exists, skipping (no overwrite)")
+        else:
+            shutil.copy2(deploy_src, deploy_dst)
+            print(f"  Created .github/workflows/deploy.yml (target: {deploy_target})")
 
 
 def deploy(args: argparse.Namespace) -> None:
@@ -261,12 +464,23 @@ def deploy(args: argparse.Namespace) -> None:
         gitignore_path.write_text(claude_ignore_entry, encoding="utf-8")
         print("  Created .gitignore with .claude/ exclusion")
 
+    ci_profile = getattr(args, "ci_profile", "")
+    deploy_target = getattr(args, "deploy_target", "none")
+    if ci_profile:
+        print(f"[6/6] Setting up CI/CD (profile: {ci_profile})...")
+        deploy_ci(target, ci_profile, deploy_target)
+    else:
+        print("[6/6] Skipping CI/CD (no --ci-profile specified)")
+
     if args.with_tests:
         print("[+] Copying test suite...")
         shutil.copytree(INFRA_DIR / "tests" / "hook", target / "tests" / "hook", dirs_exist_ok=True)
         shutil.copytree(INFRA_DIR / "tests" / "fixtures", target / "tests" / "fixtures", dirs_exist_ok=True)
         shutil.copytree(INFRA_DIR / "tests" / "infra", target / "tests" / "infra", dirs_exist_ok=True)
         shutil.copy2(INFRA_DIR / "package.json", target / "package.json")
+
+    print("[7/7] Registering deploy...")
+    _register_deploy(target, selected, ci_profile, getattr(args, "deploy_target", "none"))
 
     print()
     _header("Done!")
@@ -293,6 +507,22 @@ def main() -> None:
         deploy(args)
         return
 
+    if "--status" in sys.argv:
+        status_cmd()
+        return
+
+    if "--update-all" in sys.argv:
+        update_all_cmd()
+        return
+
+    if "--update" in sys.argv:
+        idx = sys.argv.index("--update")
+        if idx + 1 >= len(sys.argv):
+            print("ERROR: --update requires a target path", file=sys.stderr)
+            sys.exit(1)
+        update_cmd(sys.argv[idx + 1])
+        return
+
     parser = argparse.ArgumentParser(
         description="Deploy ml-claude-infra into a target project.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -301,6 +531,14 @@ def main() -> None:
             "  python scripts/deploy.py ~/Repos/my-project --all",
             "  python scripts/deploy.py ~/Repos/my-project --all --include-meta --with-tests",
             "  python scripts/deploy.py ~/Repos/my-project --skills python-project-standards,fastapi-patterns",
+            "  python scripts/deploy.py ~/Repos/my-project --all --ci-profile fastapi",
+            "  python scripts/deploy.py ~/Repos/my-project --all --ci-profile fastapi-db --deploy-target yc",
+            "  python scripts/deploy.py ~/Repos/my-project --all --ci-profile ml-heavy --deploy-target vps",
+            "",
+            "Update commands:",
+            "  python scripts/deploy.py --status              # show all repos + version drift",
+            "  python scripts/deploy.py --update <path>       # update .claude/ in one repo",
+            "  python scripts/deploy.py --update-all          # update .claude/ in all registered repos",
         ]),
     )
     parser.add_argument("target", help="Target project directory")
@@ -310,6 +548,20 @@ def main() -> None:
                         help="Include meta-skills (design-doc-creator, skill-developer)")
     parser.add_argument("--with-tests", action="store_true", dest="with_tests",
                         help="Copy test suite into target project")
+    parser.add_argument(
+        "--ci-profile",
+        dest="ci_profile",
+        default="",
+        choices=["minimal", "fastapi", "fastapi-db", "ml-heavy"],
+        help="CI/CD profile to deploy into .github/workflows/ci.yml",
+    )
+    parser.add_argument(
+        "--deploy-target",
+        dest="deploy_target",
+        default="none",
+        choices=["none", "yc", "vps"],
+        help="Deploy stage: yc (Yandex Cloud), vps (SSH+docker-compose), none (default)",
+    )
 
     args = parser.parse_args()
 
