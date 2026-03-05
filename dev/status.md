@@ -34,6 +34,8 @@ Tasks in priority order. Check off when done.
 - [ ] Add CI to existing repos: regional-budget (minimal), nalog-parser (minimal), TechCon (fastapi-db), sbera (ml-heavy)
 
 **Completed (most recent first):**
+- [x] CI debt audit + systemic fix: template [project.optional-dependencies]→[dependency-groups], add .pre-commit-config.yaml template, enforce ruff-before-commit in CLAUDE.md — 2026-03-05
+- [x] CI_DEBT.md created in sd_support_suggestions_sbera (53 ruff errors) and TechCon_Passports (dep structure fix) — 2026-03-05
 - [x] Windows compatibility: session-start.js injects WINDOWS_RULES_BLOCK on win32 (python cmd, PowerShell docs, encoding) — 2026-03-05
 - [x] .gitignore: exclude project-config.json and nested .claude/cache/logs — 2026-03-05
 - [x] CI/CD standard: 4 profiles + 2 deploy targets, deploy.py --ci-profile/--deploy-target, /new-project wizard — 2026-03-05
