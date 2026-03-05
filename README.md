@@ -69,8 +69,8 @@ Skills bring domain knowledge: FastAPI patterns, RAG pipelines, LangGraph graphs
 ### 1. Clone
 
 ```bash
-git clone https://github.com/pyramidheadshark/ml-claude-infra ~/Repos/ml-claude-infra
-cd ~/Repos/ml-claude-infra
+git clone https://github.com/pyramidheadshark/ml-claude-infra
+cd ml-claude-infra
 npm install
 ```
 
@@ -84,44 +84,42 @@ Wizard asks: target path → preset or skills → CI profile → deploy target.
 
 **CLI — selected skills:**
 ```bash
-python scripts/deploy.py ~/Repos/my-project \
+python scripts/deploy.py /path/to/my-project \
   --skills python-project-standards,fastapi-patterns,test-first-patterns \
   --ci-profile fastapi
 ```
 
-**CLI — все скиллы + CI:**
+**CLI — all skills + CI:**
 ```bash
-python scripts/deploy.py ~/Repos/my-project --all --ci-profile ml-heavy
+python scripts/deploy.py /path/to/my-project --all --ci-profile ml-heavy
 ```
 
 ### 3. Configure
 
 ```bash
 # Copy and adapt the Claude profile for your project
-cp .claude/CLAUDE.md ~/Repos/my-project/.claude/CLAUDE.md
+cp .claude/CLAUDE.md /path/to/my-project/.claude/CLAUDE.md
 
 # Fill in project goal, current phase, next steps
-# (opens in your editor of choice)
-code ~/Repos/my-project/dev/status.md
+code /path/to/my-project/dev/status.md
 ```
 
 ### 4. Verify
 
 ```bash
-cd ~/Repos/my-project
+cd /path/to/my-project
 echo '{"prompt":"pyproject.toml ruff setup"}' | node .claude/hooks/skill-activation-prompt.js
 # → JSON with python-project-standards in system_prompt_addition
 ```
 
-### 5. Keep all deployed repos up to date
+### 5. Keep all deployed projects up to date
 
-После `git pull` в ml-claude-infra — распространить изменения во все зарегистрированные репо:
+After `git pull` in ml-claude-infra — propagate changes to all registered projects:
 
 ```bash
-cd ~/Repos/ml-claude-infra
-python scripts/deploy.py --status       # показать версии всех репо
-python scripts/deploy.py --update-all   # обновить устаревшие (.claude/ only, CI не трогает)
-python scripts/deploy.py --update ~/Repos/my-project  # обновить одно репо
+python scripts/deploy.py --status                      # show version drift for all projects
+python scripts/deploy.py --update-all                  # update outdated ones (.claude/ only, never touches CI)
+python scripts/deploy.py --update /path/to/my-project  # update a single project
 ```
 
 ---
@@ -169,9 +167,9 @@ On a 200K context window: < 3% overhead per prompt.
 ```bash
 npm run test:hook                  # 68 Jest tests (unit + E2E + session-start)
 python tests/infra/test_infra.py   # 35 Python infra contract tests
-npm test                           # both (на Windows python3 → python автоматически)
-npm run check:budget               # проверить что все скиллы < 300 строк
-npm run metrics                    # отчёт по частоте загрузки скиллов
+npm test                           # both (Windows: python3 falls back to python automatically)
+npm run check:budget               # verify all skills stay under 300 lines
+npm run metrics                    # skill load frequency report
 ```
 
 ---
