@@ -54,6 +54,23 @@ const sessionContext = {
 
 const { injections, matchedSkills, statusHash } = buildInjections(fs, path, cwd, prompt, changedFiles, rules, sessionContext);
 
+const PLAN_MODE_KEYWORDS = [
+  "план", "планир", "запланир", "спланируем", "спланируй", "давай спланируем",
+  "многоступенчат", "поэтапн", "пошагов", "составь план", "разработай план",
+  "plan", "planning", "multi-step", "multi-phase", "step-by-step", "let's plan",
+];
+const promptLower = prompt.toLowerCase();
+const isPlanIntent = PLAN_MODE_KEYWORDS.some((kw) => promptLower.includes(kw));
+if (isPlanIntent) {
+  injections.push(
+    "## ⚠ Plan Mode Required\n" +
+    "Planning intent detected. Before writing any code:\n" +
+    "1. Call EnterPlanMode tool\n" +
+    "2. Present the full step-by-step implementation plan\n" +
+    "3. Wait for explicit user approval before proceeding"
+  );
+}
+
 const updatedLoadedSkills = [...new Set([...(cache.loaded_skills || []), ...matchedSkills])];
 try {
   saveSessionCache(sessionId, {
