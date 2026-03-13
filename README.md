@@ -1,10 +1,10 @@
-# ml-claude-infra
+# claude-scaffold
 
 **Your personal Claude Code brain — one repo that makes Claude a disciplined ML engineer across all your projects.**
 
 Clone once. Deploy to any project in one command. Tell Claude to run `--update-all` whenever you improve the config — every project stays in sync automatically.
 
-[![CI](https://github.com/pyramidheadshark/ml-claude-infra/actions/workflows/ci.yml/badge.svg)](https://github.com/pyramidheadshark/ml-claude-infra/actions/workflows/ci.yml)
+[![CI](https://github.com/pyramidheadshark/claude-scaffold/actions/workflows/ci.yml/badge.svg)](https://github.com/pyramidheadshark/claude-scaffold/actions/workflows/ci.yml)
 ![Jest Tests](https://img.shields.io/badge/Jest-71%20tests-brightgreen)
 ![Python Tests](https://img.shields.io/badge/Python-37%20tests-blue)
 ![Skills](https://img.shields.io/badge/skills-14-orange)
@@ -19,7 +19,7 @@ Clone once. Deploy to any project in one command. Tell Claude to run `--update-a
 Most Claude Code setups are per-project and drift apart. This repo is different: it's a **central infrastructure layer** that you own and deploy everywhere.
 
 ```
-ml-claude-infra  ← you edit this once
+claude-scaffold  ← you edit this once
       │
       ├── deploy → project-a/.claude/
       ├── deploy → project-b/.claude/
@@ -30,7 +30,7 @@ Later: python scripts/deploy.py --update-all
 ```
 
 You can ask Claude directly to handle this:
-> *"Deploy ml-claude-infra to my new project with fastapi and test-first skills"*
+> *"Deploy claude-scaffold to my new project with fastapi and test-first skills"*
 > *"Update all registered projects to the latest infra version"*
 
 Claude reads this README, runs `deploy.py`, and wires everything up. No manual config copy-pasting.
@@ -94,8 +94,8 @@ Skills bring domain knowledge: FastAPI patterns, RAG pipelines, LangGraph graphs
 ### 1. Clone
 
 ```bash
-git clone https://github.com/pyramidheadshark/ml-claude-infra
-cd ml-claude-infra
+git clone https://github.com/pyramidheadshark/claude-scaffold
+cd claude-scaffold
 npm install
 ```
 
@@ -139,7 +139,7 @@ echo '{"prompt":"pyproject.toml ruff setup"}' | node .claude/hooks/skill-activat
 
 ### 5. Keep all projects in sync
 
-This is the core workflow. After any change to ml-claude-infra, one command propagates it everywhere:
+This is the core workflow. After any change to claude-scaffold, one command propagates it everywhere:
 
 ```bash
 python scripts/deploy.py --status                      # show all registered projects + version drift
@@ -204,7 +204,7 @@ npm run metrics                    # skill load frequency report
 ## Repository Structure
 
 ```
-ml-claude-infra/
+claude-scaffold/
 ├── .claude/
 │   ├── skills/          # 14 skill modules (SKILL.md + resources/ + skill-metadata.json)
 │   ├── hooks/           # lifecycle automation
