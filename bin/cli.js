@@ -8,7 +8,7 @@ const { updateOne, updateAll } = require('../lib/commands/update');
 const { printStatusReport } = require('../lib/commands/status');
 const { addSkill } = require('../lib/commands/add-skill');
 const { runWizard } = require('../lib/ui/wizard');
-const { DEFAULT_REGISTRY_PATH } = require('../lib/deploy/registry');
+const { DEFAULT_REGISTRY_PATH, registerDeploy } = require('../lib/deploy/registry');
 const PROFILES = require('../lib/profiles');
 
 const INFRA_DIR = path.join(__dirname, '..');
@@ -70,6 +70,12 @@ program
       skills,
       profile: opts.profile || '',
       lang: opts.lang || 'en',
+      ciProfile: opts.ci || '',
+      deployTarget: opts.deploy || 'none',
+    });
+
+    registerDeploy(INFRA_DIR, resolvedTarget, {
+      skills,
       ciProfile: opts.ci || '',
       deployTarget: opts.deploy || 'none',
     });
