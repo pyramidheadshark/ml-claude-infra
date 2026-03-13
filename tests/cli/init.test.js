@@ -121,7 +121,7 @@ describe('init — deployCore', () => {
     expect(settings.mcpServers.myServer).toBeDefined();
   });
 
-  test('settings.json hooks use node commands (not bash)', () => {
+  test('settings.json hooks use correct commands', () => {
     deployCore(INFRA_DIR, tmpDir, { skills: ['python-project-standards'] });
     const settings = JSON.parse(
       fs.readFileSync(path.join(tmpDir, '.claude', 'settings.json'), 'utf8')
@@ -130,10 +130,9 @@ describe('init — deployCore', () => {
     const stopCmd = settings.hooks.Stop[0].hooks[0].command;
     expect(postToolCmd).toMatch(/^node /);
     expect(postToolCmd).toMatch(/\.js$/);
-    expect(stopCmd).toMatch(/^node /);
-    expect(stopCmd).toMatch(/\.js$/);
     expect(postToolCmd).not.toMatch(/bash/);
-    expect(stopCmd).not.toMatch(/bash/);
+    expect(stopCmd).toMatch(/python-quality-check\.js/);
+    expect(stopCmd).toMatch(/git rev-parse --show-toplevel/);
   });
 
   test('lang ru writes project-config.json with lang:ru', () => {
