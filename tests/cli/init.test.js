@@ -120,4 +120,65 @@ describe('init — deployCore', () => {
     expect(settings.mcpServers).toBeDefined();
     expect(settings.mcpServers.myServer).toBeDefined();
   });
+
+  test('settings.json hooks use node commands (not bash)', () => {
+    deployCore(INFRA_DIR, tmpDir, { skills: ['python-project-standards'] });
+    const settings = JSON.parse(
+      fs.readFileSync(path.join(tmpDir, '.claude', 'settings.json'), 'utf8')
+    );
+    const postToolCmd = settings.hooks.PostToolUse[0].hooks[0].command;
+    const stopCmd = settings.hooks.Stop[0].hooks[0].command;
+    expect(postToolCmd).toMatch(/^node /);
+    expect(postToolCmd).toMatch(/\.js$/);
+    expect(stopCmd).toMatch(/^node /);
+    expect(stopCmd).toMatch(/\.js$/);
+    expect(postToolCmd).not.toMatch(/bash/);
+    expect(stopCmd).not.toMatch(/bash/);
+  });
+
+  test('lang ru writes project-config.json with lang:ru', () => {
+    deployCore(INFRA_DIR, tmpDir, {
+      skills: ['python-project-standards'],
+      lang: 'ru',
+    });
+    const configPath = path.join(tmpDir, '.claude', 'project-config.json');
+    expect(fs.existsSync(configPath)).toBe(true);
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    expect(config.lang).toBe('ru');
+    expect(config.session_count).toBe(0);
+  });
+
+  test('lang en (default) does NOT write project-config.json', () => {
+    deployCore(INFRA_DIR, tmpDir, {
+      skills: ['python-project-standards'],
+      lang: 'en',
+    });
+    const configPath = path.join(tmpDir, '.claude', 'project-config.json');
+    expect(fs.existsSync(configPath)).toBe(false);
+  });
+
+  test('copies profile CLAUDE.md template for known profile + lang', () => {
+    deployCore(INFRA_DIR, tmpDir, {
+      skills: ['python-project-standards'],
+      profile: 'ml-engineer',
+      lang: 'en',
+    });
+    const claudeMd = path.join(tmpDir, '.claude', 'CLAUDE.md');
+    expect(fs.existsSync(claudeMd)).toBe(true);
+    const content = fs.readFileSync(claudeMd, 'utf8');
+    expect(content).toContain('ML Engineer');
+  });
+
+  test('copies RU profile CLAUDE.md when lang is ru', () => {
+    deployCore(INFRA_DIR, tmpDir, {
+      skills: ['python-project-standards'],
+      profile: 'ml-engineer',
+      lang: 'ru',
+    });
+    const claudeMd = path.join(tmpDir, '.claude', 'CLAUDE.md');
+    expect(fs.existsSync(claudeMd)).toBe(true);
+    const content = fs.readFileSync(claudeMd, 'utf8');
+    expect(content).toContain('ML Engineer');
+    expect(content).toContain('Профиль');
+  });
 });

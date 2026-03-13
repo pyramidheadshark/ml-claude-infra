@@ -103,6 +103,24 @@ describe('update — updateAll', () => {
     expect(result.skipped).toBe(1);
   });
 
+  test('skips repos where path does not exist on disk', () => {
+    const registry = {
+      deployed: [{
+        path: '/does/not/exist/on/disk/anywhere',
+        skills: ['python-project-standards'],
+        ci_profile: '',
+        deploy_target: 'none',
+        deployed_at: '2025-01-01',
+        infra_sha: 'old_sha_gone',
+      }],
+    };
+    fs.writeFileSync(registryPath, JSON.stringify(registry), 'utf8');
+
+    const result = updateAll(INFRA_DIR, registryPath);
+    expect(result.updated).toBe(0);
+    expect(result.skipped).toBe(1);
+  });
+
   test('updates outdated repos', () => {
     deployCore(INFRA_DIR, tmpDir, { skills: ['python-project-standards'] });
 
