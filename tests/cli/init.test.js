@@ -181,4 +181,29 @@ describe('init — deployCore', () => {
     expect(content).toContain('ML Engineer');
     expect(content).toContain('Профиль');
   });
+
+  test('deployCore preserves user custom hook events in settings.json', () => {
+    const settingsPath = path.join(tmpDir, '.claude', 'settings.json');
+    fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+    fs.writeFileSync(settingsPath, JSON.stringify({
+      hooks: { PreToolUse: [{ matcher: '.*', hooks: [{ type: 'command', command: 'my-hook' }] }] },
+    }), 'utf8');
+    deployCore(INFRA_DIR, tmpDir, { skills: ['python-project-standards'] });
+    const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+    expect(settings.hooks.PreToolUse).toBeDefined();
+    expect(settings.hooks.UserPromptSubmit).toBeDefined();
+  });
+
+  test('deployCore overwrites scaffold hook events with current definition', () => {
+    const settingsPath = path.join(tmpDir, '.claude', 'settings.json');
+    fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+    fs.writeFileSync(settingsPath, JSON.stringify({
+      hooks: { UserPromptSubmit: [{ matcher: '', hooks: [{ type: 'command', command: 'node old-hook.js' }] }] },
+    }), 'utf8');
+    deployCore(INFRA_DIR, tmpDir, { skills: ['python-project-standards'] });
+    const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+    const cmd = settings.hooks.UserPromptSubmit[0].hooks[0].command;
+    expect(cmd).toContain('skill-activation-prompt.js');
+    expect(cmd).not.toContain('old-hook.js');
+  });
 });
