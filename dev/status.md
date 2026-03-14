@@ -31,8 +31,12 @@ Personal Claude Code infrastructure for ML engineering projects — reusable ski
 Tasks in priority order. Check off when done.
 
 - [ ] Deploy to first real project — verify hook, skills, dev/status.md in practice
+- [ ] Add CI to existing repos: regional-budget (minimal), nalog-parser (minimal), TechCon (fastapi-db), sbera (ml-heavy)
 
 **Completed (most recent first):**
+- [x] Windows compatibility: session-start.js injects WINDOWS_RULES_BLOCK on win32 (python cmd, PowerShell docs, encoding) — 2026-03-05
+- [x] .gitignore: exclude project-config.json and nested .claude/cache/logs — 2026-03-05
+- [x] CI/CD standard: 4 profiles + 2 deploy targets, deploy.py --ci-profile/--deploy-target, /new-project wizard — 2026-03-05
 - [x] Optimization sprint: 5 phases — 2026-03-04
   - Phase 1: .claudeignore (node_modules, logs, cache, active/, *.jsonl, archives)
   - Phase 2: skill line budget test (300 lines soft limit + check:budget script)
