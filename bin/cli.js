@@ -7,8 +7,9 @@ const { deployCore } = require('../lib/commands/init');
 const { updateOne, updateAll } = require('../lib/commands/update');
 const { printStatusReport } = require('../lib/commands/status');
 const { addSkill } = require('../lib/commands/add-skill');
+const { runMetrics } = require('../lib/commands/metrics');
 const { runWizard } = require('../lib/ui/wizard');
-const { DEFAULT_REGISTRY_PATH, registerDeploy } = require('../lib/deploy/registry');
+const { DEFAULT_REGISTRY_PATH } = require('../lib/deploy/registry');
 const PROFILES = require('../lib/profiles');
 
 const INFRA_DIR = path.join(__dirname, '..');
@@ -29,6 +30,7 @@ program
   .option('--skills <list>', 'Comma-separated skill names (overrides profile)')
   .option('--ci <profile>', 'CI profile: minimal|fastapi|fastapi-db|ml-heavy')
   .option('--deploy <target>', 'Deploy target: none|yc|vps', 'none')
+  .option('--dry-run', 'Preview what will be deployed without writing files')
   .action(async (targetPath, opts) => {
     if (!targetPath && !opts.profile && !opts.skills) {
       const answers = await runWizard();
@@ -72,13 +74,10 @@ program
       lang: opts.lang || 'en',
       ciProfile: opts.ci || '',
       deployTarget: opts.deploy || 'none',
+      dryRun: !!opts.dryRun,
     });
 
-    registerDeploy(INFRA_DIR, resolvedTarget, {
-      skills,
-      ciProfile: opts.ci || '',
-      deployTarget: opts.deploy || 'none',
-    });
+    if (opts.dryRun) return;
 
     console.log(`\n${LINE}`);
     console.log('  Done!');
@@ -126,8 +125,15 @@ program
   .description('Add a skill to an existing deployed project')
   .action((skillName, targetPath) => {
     const resolved = path.resolve(targetPath || process.cwd());
-    addSkill(INFRA_DIR, resolved, skillName, DEFAULT_REGISTRY_PATH);
+    addSkill(INFRA_DIR, resolved, skillName);
     console.log(`\nAdded skill '${skillName}' to ${resolved}`);
+  });
+
+program
+  .command('metrics')
+  .description('Show skill load frequency report from .claude/logs/skill-metrics.jsonl')
+  .action(() => {
+    runMetrics(process.cwd());
   });
 
 program.parse(process.argv);

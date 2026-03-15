@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+# DEPRECATED: Use `npx claude-scaffold` instead.
+# This script is kept for reference only.
+# Migration: repos deployed via this script are fully compatible with the NPX CLI —
+# both write the same deployed-repos.json format via registry.js.
+# To update existing repos: npx claude-scaffold update --all
 """
 deploy.py — cross-platform deploy script for claude-scaffold.
 
@@ -35,9 +40,12 @@ SKILLS_DIR = INFRA_DIR / ".claude" / "skills"
 CI_TEMPLATES_DIR = INFRA_DIR / "templates" / "github-actions"
 REGISTRY_PATH = INFRA_DIR / "deployed-repos.json"
 
-HOOKS_DEFINITION: dict = json.loads(
-    (INFRA_DIR / "lib" / "hooks-definition.json").read_text(encoding="utf-8")
-)
+HOOKS_DEFINITION: dict = {
+    "SessionStart": [{"matcher": "", "hooks": [{"type": "command", "command": "node .claude/hooks/session-start.js"}]}],
+    "UserPromptSubmit": [{"matcher": "", "hooks": [{"type": "command", "command": "node .claude/hooks/skill-activation-prompt.js"}]}],
+    "PostToolUse": [{"matcher": ".*", "hooks": [{"type": "command", "command": "node .claude/hooks/post-tool-use-tracker.js"}]}],
+    "Stop": [{"matcher": "", "hooks": [{"type": "command", "command": "node .claude/hooks/python-quality-check.js"}]}],
+}
 
 CI_PROFILES: list[tuple[str, str]] = [
     ("minimal",    "Lint + typecheck + test — CLI tools, data scripts, web scrapers"),

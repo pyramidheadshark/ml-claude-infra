@@ -45,11 +45,7 @@ function matchSkills(rules, prompt, changedFiles, maxSkills, alreadyLoaded = [])
 
     if (!hit && triggers.files && changedFiles.length > 0) {
       hit = triggers.files.some((pattern) => {
-        const escaped = pattern
-          .replace(/\./g, '\\.')
-          .replace(/\*/g, '.*')
-          .replace(/\?/g, '.');
-        const regex = new RegExp(escaped + '$');
+        const regex = new RegExp(pattern.replace(/\*/g, ".*").replace(/\?/g, "."));
         return changedFiles.some((f) => regex.test(f));
       });
     }

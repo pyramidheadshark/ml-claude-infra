@@ -64,34 +64,31 @@ describe('add-skill — addSkill', () => {
     expect(fs.existsSync(path.join(skillDir, 'skill-metadata.json'))).toBe(true);
   });
 
-  test('updates registry skills list when project is registered', () => {
-    const registryPath = path.join(tmpDir, 'test-registry.json');
-    const registry = {
-      deployed: [{
-        path: tmpDir, skills: ['python-project-standards'],
-        ci_profile: '', deploy_target: 'none', deployed_at: '2026-01-01', infra_sha: 'abc',
-      }],
-    };
-    fs.writeFileSync(registryPath, JSON.stringify(registry), 'utf8');
-    addSkill(INFRA_DIR, tmpDir, 'fastapi-patterns', registryPath);
-    const updated = JSON.parse(fs.readFileSync(registryPath, 'utf8'));
-    const entry = updated.deployed.find(e => e.path === tmpDir);
-    expect(entry.skills).toContain('fastapi-patterns');
-    expect(entry.skills).toContain('python-project-standards');
-  });
-
-  test('does not fail if project not in registry', () => {
-    const registryPath = path.join(tmpDir, 'empty-registry.json');
-    fs.writeFileSync(registryPath, JSON.stringify({ deployed: [] }), 'utf8');
-    expect(() => addSkill(INFRA_DIR, tmpDir, 'fastapi-patterns', registryPath)).not.toThrow();
-  });
-
   test('add-skill throws descriptive error when source skill-rules.json missing', () => {
     const fakeInfra = fs.mkdtempSync(path.join(os.tmpdir(), 'cs-fake-infra-'));
     const fakeSkill = path.join(fakeInfra, '.claude', 'skills', 'fake-skill');
     fs.mkdirSync(fakeSkill, { recursive: true });
     try {
       expect(() => addSkill(fakeInfra, tmpDir, 'fake-skill')).toThrow('Skill registry not found');
+    } finally {
+      fs.rmSync(fakeInfra, { recursive: true, force: true });
+    }
+  });
+
+  test('throws readable error when target skill-rules.json is corrupted', () => {
+    const rulesPath = path.join(tmpDir, '.claude', 'skills', 'skill-rules.json');
+    fs.writeFileSync(rulesPath, '{ invalid json !!!', 'utf8');
+    expect(() => addSkill(INFRA_DIR, tmpDir, 'fastapi-patterns')).toThrow('corrupted');
+  });
+
+  test('throws readable error when source skill-rules.json is corrupted', () => {
+    const fakeInfra = fs.mkdtempSync(path.join(os.tmpdir(), 'cs-fake-infra2-'));
+    const fakeSkill = path.join(fakeInfra, '.claude', 'skills', 'fake-skill');
+    fs.mkdirSync(fakeSkill, { recursive: true });
+    const fakeRules = path.join(fakeInfra, '.claude', 'skills', 'skill-rules.json');
+    fs.writeFileSync(fakeRules, '{ invalid json !!!', 'utf8');
+    try {
+      expect(() => addSkill(fakeInfra, tmpDir, 'fake-skill')).toThrow('corrupted');
     } finally {
       fs.rmSync(fakeInfra, { recursive: true, force: true });
     }

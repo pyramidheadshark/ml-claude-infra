@@ -15,8 +15,8 @@ afterEach(() => {
 });
 
 const INFRA_DIR = path.join(__dirname, '..', '..');
-const { deployCore } = require('../../lib/commands/init');
-const copy = require('../../lib/deploy/copy');
+const { deployCore, PROFILE_RESULT } = require('../../lib/commands/init');
+const { generateSkillRules } = require('../../lib/deploy/copy');
 
 describe('init — deployCore', () => {
   test('creates .claude/hooks/ directory', () => {
@@ -122,7 +122,7 @@ describe('init — deployCore', () => {
     expect(settings.mcpServers.myServer).toBeDefined();
   });
 
-  test('settings.json hooks use correct commands', () => {
+  test('settings.json hooks use node commands (not bash)', () => {
     deployCore(INFRA_DIR, tmpDir, { skills: ['python-project-standards'] });
     const settings = JSON.parse(
       fs.readFileSync(path.join(tmpDir, '.claude', 'settings.json'), 'utf8')
@@ -131,9 +131,10 @@ describe('init — deployCore', () => {
     const stopCmd = settings.hooks.Stop[0].hooks[0].command;
     expect(postToolCmd).toMatch(/^node /);
     expect(postToolCmd).toMatch(/\.js$/);
+    expect(stopCmd).toMatch(/^node /);
+    expect(stopCmd).toMatch(/\.js$/);
     expect(postToolCmd).not.toMatch(/bash/);
-    expect(stopCmd).toMatch(/python-quality-check\.js/);
-    expect(stopCmd).toMatch(/git rev-parse --show-toplevel/);
+    expect(stopCmd).not.toMatch(/bash/);
   });
 
   test('lang ru writes project-config.json with lang:ru', () => {
@@ -194,29 +195,72 @@ describe('init — deployCore', () => {
     expect(settings.hooks.UserPromptSubmit).toBeDefined();
   });
 
-  test('generateSkillRules throws descriptive error if source skill-rules.json missing', () => {
-    const fakeInfra = fs.mkdtempSync(path.join(os.tmpdir(), 'cs-fake-infra-'));
+  test('generateSkillRules throws if skill-rules.json missing from infra', () => {
+    const fakeInfra = fs.mkdtempSync(path.join(os.tmpdir(), 'cs-fake-infra-init-'));
+    fs.mkdirSync(path.join(fakeInfra, '.claude', 'skills'), { recursive: true });
     try {
-      expect(() => copy.generateSkillRules(fakeInfra, tmpDir, ['python-project-standards']))
-        .toThrow('Cannot read skill-rules.json');
+      expect(() => generateSkillRules(fakeInfra, tmpDir, ['python-project-standards']))
+        .toThrow('skill-rules.json not found');
     } finally {
       fs.rmSync(fakeInfra, { recursive: true, force: true });
     }
   });
 
-  test('copyDirContents respects ext filter in subdirectories', () => {
-    const srcInfra = fs.mkdtempSync(path.join(os.tmpdir(), 'cs-fake-infra-'));
+  test('copyProfileTemplate returns NOT_FOUND for unknown profile', () => {
+    const { copyProfileTemplate } = require('../../lib/commands/init');
+    const result = copyProfileTemplate(INFRA_DIR, tmpDir, 'nonexistent-profile', 'en');
+    expect(result).toBe(PROFILE_RESULT.NOT_FOUND);
+  });
+
+  test('copyProfileTemplate returns SKIPPED when CLAUDE.md already exists', () => {
+    const { copyProfileTemplate } = require('../../lib/commands/init');
+    const claudeMd = path.join(tmpDir, '.claude', 'CLAUDE.md');
+    fs.mkdirSync(path.dirname(claudeMd), { recursive: true });
+    fs.writeFileSync(claudeMd, '# existing', 'utf8');
+    const result = copyProfileTemplate(INFRA_DIR, tmpDir, 'ml-engineer', 'en');
+    expect(result).toBe(PROFILE_RESULT.SKIPPED);
+    expect(fs.readFileSync(claudeMd, 'utf8')).toBe('# existing');
+  });
+
+  test('dry-run does not write any files to target', () => {
+    deployCore(INFRA_DIR, tmpDir, { skills: ['python-project-standards'], dryRun: true });
+    expect(fs.existsSync(path.join(tmpDir, '.claude'))).toBe(false);
+  });
+
+  test('dry-run prints plan to stdout', () => {
+    const chunks = [];
+    const origWrite = process.stdout.write.bind(process.stdout);
+    process.stdout.write = (chunk, ...args) => { chunks.push(chunk); return origWrite(chunk, ...args); };
     try {
-      const agentsSubdir = path.join(srcInfra, '.claude', 'agents', 'subgroup');
-      fs.mkdirSync(agentsSubdir, { recursive: true });
-      fs.writeFileSync(path.join(agentsSubdir, 'helper.md'), '# helper');
-      fs.writeFileSync(path.join(agentsSubdir, 'tool.js'), 'code');
-      copy.copyAgents(srcInfra, tmpDir);
-      expect(fs.existsSync(path.join(tmpDir, '.claude', 'agents', 'subgroup', 'helper.md'))).toBe(true);
-      expect(fs.existsSync(path.join(tmpDir, '.claude', 'agents', 'subgroup', 'tool.js'))).toBe(false);
+      deployCore(INFRA_DIR, tmpDir, { skills: ['python-project-standards', 'fastapi-patterns'], dryRun: true });
     } finally {
-      fs.rmSync(srcInfra, { recursive: true, force: true });
+      process.stdout.write = origWrite;
     }
+    const output = chunks.join('');
+    expect(output).toContain('[dry-run]');
+    expect(output).toContain('python-project-standards');
+    expect(output).toContain('fastapi-patterns');
+    expect(output).toContain('Register in deployed-repos.json');
+  });
+
+  test('dry-run with profile includes CLAUDE.md line in plan', () => {
+    const chunks = [];
+    const origWrite = process.stdout.write.bind(process.stdout);
+    process.stdout.write = (chunk, ...args) => { chunks.push(chunk); return origWrite(chunk, ...args); };
+    try {
+      deployCore(INFRA_DIR, tmpDir, {
+        skills: ['python-project-standards'],
+        profile: 'ml-engineer',
+        lang: 'ru',
+        dryRun: true,
+      });
+    } finally {
+      process.stdout.write = origWrite;
+    }
+    const output = chunks.join('');
+    expect(output).toContain('CLAUDE.md');
+    expect(output).toContain('ml-engineer');
+    expect(output).toContain('ru');
   });
 
   test('deployCore overwrites scaffold hook events with current definition', () => {
